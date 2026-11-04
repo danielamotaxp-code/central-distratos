@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Configurar acessos · Central de Distratos</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Sans+3:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="estilo.css">
+<style>
+.grid{display:grid;gap:16px;max-width:640px}
+.users{display:grid;gap:10px}
+.user{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+@media (max-width:560px){.user{grid-template-columns:1fr}}
+ol{margin:6px 0 0;padding-left:20px}
+ol li+li{margin-top:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Configurar acessos</h1>
+      <p class="sub">Feito uma vez, pela dona do site. Cria os logins de quem usa a Central de Distratos.</p>
+    </div>
+    <a class="btn ghost" href="./">Voltar ao site</a>
+  </header>
+
+  <section class="card grid">
+    <div>
+      <h2>1. Chave do GitHub</h2>
+      <p class="muted">O site usa uma chave (token) do GitHub para guardar os contratos e os distratos no repositório privado. Para criar:</p>
+      <ol class="muted">
+        <li>No GitHub: <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens › Generate new token</b>.</li>
+        <li>Em <b>Repository access</b>, escolha <b>Only select repositories</b> e marque <code>central-distratos</code> e <code>central-distratos-dados</code>.</li>
+        <li>Em <b>Permissions › Repository permissions</b>: <b>Contents: Read and write</b> e <b>Actions: Read-only</b>.</li>
+        <li>Gere e cole aqui. A chave não aparece para ninguém: ela fica guardada trancada pela senha de cada pessoa.</li>
+      </ol>
+    </div>
+    <div class="field"><label for="token">Chave do GitHub</label><input id="token" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+
+    <div>
+      <h2>2. Pessoas</h2>
+      <p class="muted">Cada pessoa entra com o nome e a própria senha.</p>
+    </div>
+    <div class="users" id="users"></div>
+    <div><button class="btn ghost" type="button" id="add">Adicionar pessoa</button></div>
+
+    <div id="msg" hidden></div>
+    <div><button class="btn" type="button" id="salvar">Salvar acessos</button></div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="comum.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let n = 0;
+function linha(nome = "", senha = "") {
+  const i = n++;
+  const d = document.createElement("div"); d.className = "user";
+  d.innerHTML = `<div class="field"><label for="u${i}">Nome</label><input id="u${i}" class="nome" type="text"></div>
+    <div class="field"><label for="s${i}">Senha</label><input id="s${i}" class="senha" type="password" autocomplete="new-password"></div>
+    <button class="btn ghost" type="button">Remover</button>`;
+  d.querySelector(".nome").value = nome; d.querySelector(".senha").value = senha;
+  d.querySelector("button").onclick = () => d.remove();
+  $("#users").appendChild(d);
+}
+linha("Daniela"); linha("Paula");
+$("#add").onclick = () => linha();
+
+function msg(html, erro) { const m = $("#msg"); m.className = erro ? "note" : "ok"; m.innerHTML = html; m.hidden = false; }
+
+$("#salvar").onclick = async () => {
+  const token = $("#token").value.trim();
+  const pessoas = [...document.querySelectorAll(".user")].map(d => ({ nome: d.querySelector(".nome").value.trim(), senha: d.querySelector(".senha").value }))
+    .filter(p => p.nome);
+  if (!token) return msg("<b>Falta a chave.</b> Cole a chave do GitHub no passo 1.", true);
+  if (!pessoas.length || pessoas.some(p => !p.senha)) return msg("<b>Falta senha.</b> Cada pessoa precisa de uma senha.", true);
+  const b = $("#salvar"); b.disabled = true; msg("Testando a chave…");
+  try {
+    await gh(token, "GET", conteudo(REPO_DADOS, "registro.json"));
+  } catch (e) {
+    b.disabled = false;
+    return msg(e.status === 401 ? "<b>Chave inválida.</b> Confira se copiou a chave inteira." :
+      e.status === 404 ? "<b>A chave não alcança o repositório de dados.</b> Marque <code>central-distratos-dados</code> em Repository access." :
+      "<b>Não consegui testar a chave:</b> " + e.message, true);
+  }
+  msg("Trancando a chave com a senha de cada pessoa… (leva alguns segundos)");
+  try {
+    const usuarios = {};
+    for (const p of pessoas) usuarios[p.nome] = await cifrar(JSON.stringify({ token }), p.senha);
+    const arquivo = JSON.stringify({ versao: 1, atualizado_em: new Date().toISOString(), usuarios }, null, 1);
+    let sha;
+    try { sha = (await (await gh(token, "GET", conteudo(REPO_SITE, "acessos.json"))).json()).sha; } catch (_) {}
+    await gh(token, "PUT", conteudo(REPO_SITE, "acessos.json"), {
+      message: "Atualiza acessos da Central de Distratos", content: bytesParaBase64(new TextEncoder().encode(arquivo)), ...(sha ? { sha } : {}) });
+    $("#token").value = ""; document.querySelectorAll(".senha").forEach(i => i.value = "");
+    msg(`Acessos salvos para <b>${pessoas.map(p => p.nome).join(", ")}</b>. Em até 1 minuto o site já aceita os logins. <a href="./">Ir para o site</a>.`);
+  } catch (e) {
+    msg(e.status === 404 || e.status === 403 ? "<b>A chave não pode gravar no site.</b> Marque também <code>central-distratos</code> em Repository access, com Contents: Read and write." :
+      "<b>Não consegui salvar:</b> " + e.message, true);
+  } finally { b.disabled = false; }
+};
+</script>
+</body>
+</html>
