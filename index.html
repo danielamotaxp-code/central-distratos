@@ -60,6 +60,33 @@
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 .empty{padding:36px 18px;text-align:center;color:var(--muted)}
 .empty strong{display:block;color:var(--ink);font-family:var(--f-display);font-size:18px;margin-bottom:4px}
+/* abas */
+.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line)}
+.tabs button{font:600 15px var(--f-body);color:var(--muted);background:none;border:0;cursor:pointer;padding:10px 16px;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button[data-aba="WEGEN"][aria-selected="true"]{border-bottom-color:#4a3470}
+.tabs button[data-aba="SMARTBEN"][aria-selected="true"]{border-bottom-color:#f08a00}
+#abaArquivo,#abaDistratos{display:flex;flex-direction:column;gap:22px}
+#abaArquivo[hidden],#abaDistratos[hidden]{display:none!important}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+.seg button{font:600 14px var(--f-body);border:0;background:none;color:var(--muted);padding:7px 14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+/* pastas */
+#pastas{padding:12px}
+details.pasta{border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--bg)}
+details.pasta>summary{cursor:pointer;padding:8px 12px;display:flex;gap:8px;align-items:center;list-style:none;font-weight:600;min-width:0}
+details.pasta>summary::-webkit-details-marker{display:none}
+details.pasta>summary .num{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:2.2em}
+details.pasta>summary .t{flex:1;min-width:0;overflow-wrap:anywhere}
+details.pasta>summary .c{font-size:12px;color:var(--muted);font-weight:500}
+details.pasta[open]>summary{border-bottom:1px solid var(--line)}
+.files{list-style:none;margin:0;padding:6px 8px 8px;display:grid;gap:4px}
+.files li{display:flex;gap:8px;align-items:center;padding:4px 6px;border-radius:6px;min-width:0}
+.files li:hover{background:var(--surface)}
+.files .fn{flex:1;min-width:0;overflow-wrap:anywhere;font-size:13.5px}
+.files .sz{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
+.addf{padding:0 14px 10px}
+.modelo{font-size:13px;color:var(--muted);padding:0 18px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media (max-width:760px){
   .row{grid-template-columns:minmax(0,1fr) auto}
   .row.head{display:none}
@@ -105,6 +132,25 @@
     <div class="who"><span>Olá, <b id="quem"></b></span><button class="btn ghost" type="button" id="sair">Sair</button></div>
   </header>
 
+  <nav class="tabs" role="tablist" aria-label="Áreas">
+    <button type="button" role="tab" data-aba="distratos">Gerar distrato</button>
+    <button type="button" role="tab" data-aba="WEGEN">Arquivo WEGEN</button>
+    <button type="button" role="tab" data-aba="SMARTBEN">Arquivo SMARTBEN</button>
+  </nav>
+
+  <div id="abaArquivo" hidden>
+    <div class="bar">
+      <div class="seg" role="group" aria-label="Opção de cancelamento">
+        <button type="button" data-op="1">Opção 1</button><button type="button" data-op="2">Opção 2</button>
+      </div>
+      <span class="run" id="arqInfo"></span>
+      <input class="search" id="buscaArq" type="search" placeholder="Buscar cliente" aria-label="Buscar cliente">
+    </div>
+    <section class="list" id="pastas" aria-live="polite"><div class="empty"><strong>Carregando o arquivo…</strong></div></section>
+    <input type="file" id="anexo" hidden>
+  </div>
+
+  <div id="abaDistratos">
   <section class="drop" id="drop" aria-label="Enviar contratos">
     <div class="ico" aria-hidden="true">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 14 3-3 3 3"/></svg>
@@ -130,6 +176,7 @@
   <section class="list" id="lista" aria-live="polite">
     <div class="empty"><strong>Carregando os distratos…</strong></div>
   </section>
+  </div>
 
   <footer>
     O distrato leva de 2 a 4 minutos para ficar pronto depois do envio. A lista se atualiza sozinha.
@@ -218,6 +265,7 @@ async function carregar() {
     else aviso("<b>Não consegui atualizar a lista.</b> Verifique a internet. Tento de novo em instantes.");
   }
   render();
+  if (aba !== "distratos" && carregou) carregarArvore();
   const pendente = rodando || itens.some(x => x.status === "na_fila" || x.status === "gerando");
   timer = setTimeout(carregar, pendente ? 12000 : 60000);
 }
@@ -236,7 +284,7 @@ function render() {
   L.innerHTML = `<div class="row head"><span>Titular</span><span>Empresa · Opção</span><span>Protocolo</span><span style="text-align:right">Status</span></div>` + vis.map(x => {
     const st = ST[x.status] || ST.na_fila, ocupado = x.status === "na_fila" || x.status === "gerando";
     const nome = x.titular || x.arquivo || "Contrato";
-    const linha2 = x.pasta ? x.pasta : `Enviado por ${x.enviado_por || "—"} em ${data(x.enviado_em)}`;
+    const linha2 = x.pasta ? x.pasta.split("/").join(" › ") : `Enviado por ${x.enviado_por || "—"} em ${data(x.enviado_em)}`;
     const meta = x.empresa ? `<span class="co">${esc(x.empresa)}</span> · Opção ${esc(x.opcao)}<br><span class="small">Solicitado em ${esc(x.data_solicitacao)} · instalação ${esc(x.instalacao)}</span>`
       : `<span class="small">${ocupado ? "Lendo o contrato e a planilha" : esc(x.arquivo || "")}</span>`;
     const proto = x.protocolo ? `${esc(x.protocolo)}<small>Contrato nº ${esc(x.contrato)}${x.enviado_por ? " · por " + esc(x.enviado_por) : ""}</small>` : `<span class="small">—</span>`;
@@ -310,7 +358,109 @@ async function enviar(arqs) {
   if (ok) { toast(ok === 1 ? "Contrato enviado. O distrato fica pronto em poucos minutos." : `${ok} contratos enviados.`); setTimeout(carregar, 4000); }
 }
 
-function abrirApp() { $("#quem").textContent = sessao.nome; $("#telaApp").hidden = false; render(); carregar(); }
+/* ---------- arquivo (armazenamento por empresa) ---------- */
+let aba = "distratos", opArq = "1", arvore = null, buscaArq = "", pastaAlvo = null;
+try { opArq = localStorage.getItem("cd.op") || "1"; } catch (_) {}
+const tam = n => n == null ? "" : n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1).replace(".", ",") + " MB";
+
+function mostrarAba(a) {
+  aba = ["distratos", "WEGEN", "SMARTBEN"].includes(a) ? a : "distratos";
+  document.querySelectorAll(".tabs [data-aba]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.aba === aba)));
+  $("#abaDistratos").hidden = aba !== "distratos";
+  $("#abaArquivo").hidden = aba === "distratos";
+  const h = aba === "distratos" ? "#gerar" : "#" + aba.toLowerCase();
+  if (location.hash !== h) history.replaceState(null, "", h);
+  if (aba !== "distratos") { renderArquivo(); carregarArvore(); }
+}
+document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest("[data-aba]"); if (b) mostrarAba(b.dataset.aba); });
+window.addEventListener("hashchange", () => mostrarAba({ "#wegen": "WEGEN", "#smartben": "SMARTBEN" }[location.hash] || "distratos"));
+document.querySelector(".seg").addEventListener("click", e => {
+  const b = e.target.closest("[data-op]"); if (!b) return;
+  opArq = b.dataset.op; try { localStorage.setItem("cd.op", opArq); } catch (_) {} renderArquivo();
+});
+$("#buscaArq").addEventListener("input", e => { buscaArq = e.target.value; renderArquivo(); });
+
+async function carregarArvore() {
+  try {
+    const t = await (await gh(sessao.token, "GET", `/repos/${DONO}/${REPO_DADOS}/git/trees/main?recursive=1`)).json();
+    arvore = t.tree.filter(x => x.type === "blob");
+  } catch (e) {
+    if (!arvore) $("#pastas").innerHTML = `<div class="empty"><strong>Não consegui abrir o arquivo</strong>${e.status === 401 ? "A chave de acesso expirou. Peça para refazer os acessos." : "Verifique a internet e tente de novo."}</div>`;
+    return;
+  }
+  renderArquivo();
+}
+
+function renderArquivo() {
+  document.querySelectorAll(".seg [data-op]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.op === opArq)));
+  if (aba === "distratos" || !arvore) return;
+  const raiz = `${aba}/Cancelamento - OPÇÃO ${opArq}/`;
+  const pastas = new Map();
+  arvore.filter(f => f.path.startsWith(raiz)).forEach(f => {
+    const resto = f.path.slice(raiz.length), i = resto.indexOf("/");
+    if (i < 0) return;
+    const nome = resto.slice(0, i);
+    if (!pastas.has(nome)) pastas.set(nome, []);
+    pastas.get(nome).push({ ...f, nome: resto.slice(i + 1) });
+  });
+  const modelo = arvore.find(f => f.path === `${aba}/DISTRATO ${aba} MODELO.docx`);
+  const q = buscaArq.trim().toLowerCase();
+  const lista = [...pastas.entries()]
+    .map(([nome, arqs]) => ({ nome, arqs, num: parseInt(nome) || 0, titulo: nome.replace(/^\d+\.\s*/, "") }))
+    .filter(p => !q || p.nome.toLowerCase().includes(q) || p.arqs.some(a => a.nome.toLowerCase().includes(q)))
+    .sort((a, b) => b.num - a.num);
+  const total = pastas.size;
+  $("#arqInfo").textContent = `${aba} · Opção ${opArq} · ${total} ${total === 1 ? "cliente" : "clientes"}`;
+  const ordemArq = a => /^Termo de Distrato/i.test(a.nome) ? (/\.pdf$/i.test(a.nome) ? 0 : 1) : /^ASSINADO/i.test(a.nome) ? 2 : 3;
+  const cab = modelo ? `<div class="modelo">Modelo em uso: <button class="dl" type="button" data-baixar="${esc(modelo.path)}"><span class="tag">DOCX</span>${esc(modelo.path.split("/").pop())}</button></div>` : "";
+  if (!lista.length) {
+    $("#pastas").innerHTML = cab + `<div class="empty"><strong>${q ? "Nada encontrado" : "Nenhum cliente aqui ainda"}</strong>${q ? "Tente outro nome." : `Os distratos da ${aba} na Opção ${opArq} aparecem aqui assim que forem gerados.`}</div>`;
+    return;
+  }
+  $("#pastas").innerHTML = cab + lista.map(p => `
+    <details class="pasta"${q ? " open" : ""}>
+      <summary><span class="num">${p.num || ""}</span><span class="t">${esc(p.titulo)}</span><span class="c">${p.arqs.length} ${p.arqs.length === 1 ? "arquivo" : "arquivos"}</span></summary>
+      <ul class="files">${p.arqs.sort((a, b) => ordemArq(a) - ordemArq(b) || a.nome.localeCompare(b.nome)).map(a => `
+        <li><span class="tag">${esc((a.nome.split(".").pop() || "").toUpperCase())}</span><span class="fn">${esc(a.nome)}</span><span class="sz">${tam(a.size)}</span>
+          <button class="dl" type="button" data-baixar="${esc(a.path)}">Baixar</button></li>`).join("")}
+      </ul>
+      <div class="addf"><button class="dl" type="button" data-anexar="${esc(raiz + p.nome)}">+ Adicionar arquivo (ex.: ASSINADO.pdf)</button></div>
+    </details>`).join("");
+}
+
+async function baixar(caminho, botao) {
+  botao.disabled = true;
+  try {
+    const blob = await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, caminho), null, "application/vnd.github.raw")).blob();
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = caminho.split("/").pop(); document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 20000);
+  } catch (err) { toast(err.status === 404 ? "Arquivo não encontrado." : "Não consegui baixar agora. Tente de novo."); }
+  finally { botao.disabled = false; }
+}
+
+$("#pastas").addEventListener("click", e => {
+  const b = e.target.closest("[data-baixar],[data-anexar]"); if (!b) return;
+  if (b.dataset.baixar) return baixar(b.dataset.baixar, b);
+  pastaAlvo = b.dataset.anexar; $("#anexo").click();
+});
+$("#anexo").addEventListener("change", async () => {
+  const f = $("#anexo").files[0]; $("#anexo").value = "";
+  if (!f || !pastaAlvo) return;
+  if (f.size > 25 * 1024 * 1024) return toast("O arquivo passa de 25 MB.");
+  const nome = f.name.replace(/[\\/:*?"<>|#%]/g, "-"), caminho = `${pastaAlvo}/${nome}`;
+  if (arvore && arvore.some(x => x.path === caminho)) return toast("Já existe um arquivo com esse nome nesta pasta. Renomeie e envie de novo.");
+  toast("Enviando…");
+  try {
+    await gh(sessao.token, "PUT", conteudo(REPO_DADOS, caminho), { message: `Arquivo adicionado por ${sessao.nome}: ${caminho}`, content: bytesParaBase64(new Uint8Array(await f.arrayBuffer())) });
+    toast("Arquivo guardado na pasta."); carregarArvore();
+  } catch (err) { toast(err.status === 401 ? "A chave de acesso expirou." : "Não consegui guardar o arquivo. Tente de novo."); }
+});
+
+function abrirApp() {
+  $("#quem").textContent = sessao.nome; $("#telaApp").hidden = false; render(); carregar();
+  mostrarAba({ "#wegen": "WEGEN", "#smartben": "SMARTBEN" }[location.hash] || "distratos");
+}
 document.addEventListener("visibilitychange", () => { if (!document.hidden && sessao && carregou) carregar(); });
 iniciar();
 </script>
