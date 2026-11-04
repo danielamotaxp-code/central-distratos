@@ -1,0 +1,18 @@
+{
+ "versao": 1,
+ "atualizado_em": "2026-11-04T01:29:44.343Z",
+ "usuarios": {
+  "Daniela": {
+   "salt": "sgvHh8xJI3YTpKuxGQ1AAA==",
+   "iv": "seLtsKW7VIeKywZT",
+   "dados": "/kApCFK7b4GeFVI9cq2kV+pCWtgwkLuuDRBYuYr2R2QtIkI1RSjACnd0S3QDcM3/529GM8NKOZiQxNYd6ZmLym6w09R98mmNROV9QFkWpbvYCQMqbvLqK7DkF/fto7G7FBZ2KVNwkt2Ug0tAtin74nrjdw2Djld89g==",
+   "iter": 600000
+  },
+  "Paula": {
+   "salt": "/MUcoOTELeTW8Ozrytc9ZQ==",
+   "iv": "qCvnSfPx7hB4WRS6",
+   "dados": "Ej0WWKVG/CU9e58xISLGkhkvbX6iBAgoGIwCbrbETZNnz20EgqOrJghgQom2ppCSI43V0pwLgJU1N6M4KlN66xihR7Uo+pBC12+1RWNfm9DRDOrDstlp4flpirbIGo9HtOdFui4Tqi52dg7v8PlJX3dnqRzCfG+gFA==",
+   "iter": 600000
+  }
+ }
+}
