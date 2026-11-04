@@ -53,6 +53,11 @@
   padding:5px 10px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 .dl:hover{border-color:var(--accent);color:var(--accent)}
 .dl[disabled]{opacity:.6;cursor:progress}
+.dl.perigo{color:var(--warn)}
+.dl.perigo:hover{border-color:var(--warn);color:var(--warn)}
+.dl.perigo.forte{background:var(--warn);border-color:var(--warn);color:#fff}
+.confirma{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;font-weight:600;color:var(--warn);
+  background:var(--warn-soft);border-radius:8px;padding:4px 6px 4px 10px}
 .tag{font-family:var(--f-mono);font-size:11px;padding:1px 5px;border-radius:4px;background:var(--queue-soft);color:var(--queue-ink)}
 .warns{grid-column:1/-1;margin:0;padding:8px 12px 8px 28px;background:var(--warn-soft);border-radius:8px;font-size:13.5px}
 .spin{width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:r .8s linear infinite}
@@ -293,6 +298,7 @@ function render() {
       x.docx ? `<button class="dl" type="button" data-baixar="${esc(x.docx)}"><span class="tag">DOCX</span>Word</button>` : "",
       x.contrato_pdf ? `<button class="dl" type="button" data-baixar="${esc(x.contrato_pdf)}"><span class="tag">PDF</span>Contrato</button>` : "",
       x.status === "problema" && x.pendente ? `<button class="dl" type="button" data-tentar="${esc(x.id)}">Tentar de novo</button>` : "",
+      x.status !== "gerando" ? `<button class="dl perigo" type="button" data-excluir="${esc(x.id)}" title="Excluir este distrato da plataforma">Excluir</button>` : "",
     ].join("");
     const av = x.avisos && x.avisos.length && !ocupado ? `<ul class="warns">${x.avisos.map(a => `<li>${esc(a)}</li>`).join("")}</ul>` : "";
     return `<div class="row"><div><div class="nm">${esc(nome)}</div><div class="small">${esc(linha2)}</div></div>
@@ -304,7 +310,71 @@ function render() {
 $("#filtros").addEventListener("click", e => { const b = e.target.closest("[data-f]"); if (!b) return; filtro = b.dataset.f; try { localStorage.setItem("cd.filtro", filtro); } catch (_) {} render(); });
 $("#busca").addEventListener("input", e => { busca = e.target.value; render(); });
 
+/* ---------- excluir ---------- */
+// Mostra "Excluir X? [Sim, excluir] [Cancelar]" no lugar do botão, sem janelas do navegador.
+function confirmar(botao, texto, acao) {
+  const caixa = document.createElement("span"); caixa.className = "confirma";
+  caixa.innerHTML = `<span></span><button class="dl perigo forte" type="button">Sim, excluir</button><button class="dl" type="button">Cancelar</button>`;
+  caixa.firstChild.textContent = texto;
+  const [, sim, nao] = caixa.children;
+  botao.hidden = true; botao.after(caixa); sim.focus();
+  nao.onclick = ev => { ev.stopPropagation(); caixa.remove(); botao.hidden = false; botao.focus(); };
+  sim.onclick = async ev => {
+    ev.stopPropagation(); sim.disabled = nao.disabled = true; sim.textContent = "Excluindo…";
+    try { await acao(); } catch (err) {
+      toast(err.status === 401 ? "A chave de acesso expirou." : "Não consegui excluir agora. Tente de novo em instantes.");
+      caixa.remove(); botao.hidden = false;
+    }
+  };
+}
+
+// Apaga vários arquivos (e tira itens do registro) num único salvamento no GitHub.
+async function excluirNoRepositorio(prefixos, caminhos, tirarDoRegistro, mensagem) {
+  const R = `/repos/${DONO}/${REPO_DADOS}`;
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const head = (await (await gh(sessao.token, "GET", `${R}/git/ref/heads/main`)).json()).object.sha;
+    const commit = await (await gh(sessao.token, "GET", `${R}/git/commits/${head}`)).json();
+    const arvoreAtual = (await (await gh(sessao.token, "GET", `${R}/git/trees/${commit.tree.sha}?recursive=1`)).json()).tree.filter(t => t.type === "blob");
+    const alvo = arvoreAtual.filter(t => caminhos.includes(t.path) || prefixos.some(p => t.path.startsWith(p.endsWith("/") ? p : p + "/")));
+    const entradas = alvo.map(t => ({ path: t.path, mode: "100644", type: "blob", sha: null }));
+    if (tirarDoRegistro) {
+      const reg = await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, "registro.json") + "?ref=" + head, null, "application/vnd.github.raw")).json();
+      const novo = reg.filter(r => !tirarDoRegistro(r));
+      if (novo.length !== reg.length) entradas.push({ path: "registro.json", mode: "100644", type: "blob", content: JSON.stringify(novo, null, 1) + "\n" });
+    }
+    if (!entradas.length) return 0;
+    const arvore = await (await gh(sessao.token, "POST", `${R}/git/trees`, { base_tree: commit.tree.sha, tree: entradas })).json();
+    const novoCommit = await (await gh(sessao.token, "POST", `${R}/git/commits`, { message: mensagem, tree: arvore.sha, parents: [head] })).json();
+    try { await gh(sessao.token, "PATCH", `${R}/git/refs/heads/main`, { sha: novoCommit.sha }); return alvo.length; }
+    catch (err) { if (err.status !== 422 && err.status !== 409) throw err; } // alguém salvou junto: tenta de novo
+  }
+  throw new Error("conflito");
+}
+
+async function excluirDistrato(x) {
+  const prefixos = x.pasta ? [x.pasta] : [];
+  const caminhos = x.pendente ? [x.pendente] : [];
+  // contrato ainda na fila: o arquivo fica em entrada/ com o id no começo do nome
+  if (x.status === "na_fila") {
+    try {
+      const ent = await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, "entrada"))).json();
+      ent.filter(f => f.name.startsWith(x.id + "__")).forEach(f => caminhos.push(f.path));
+    } catch (_) {}
+  }
+  await excluirNoRepositorio(prefixos, caminhos, r => r.id === x.id, `Distrato excluído por ${sessao.nome}: ${x.titular || x.arquivo}`);
+  locais = locais.filter(l => l.id !== x.id); itens = itens.filter(i => i.id !== x.id); render();
+  toast("Distrato excluído da plataforma.");
+  arvore = null; carregar();
+}
+
 $("#lista").addEventListener("click", async e => {
+  const ex = e.target.closest("[data-excluir]");
+  if (ex) {
+    const x = itens.find(i => i.id === ex.dataset.excluir); if (!x) return;
+    const quem = x.titular || x.arquivo || "este contrato";
+    const texto = x.pasta ? `Excluir o distrato de ${quem} e a pasta inteira (contrato, Word e PDF)?` : `Excluir ${quem} da plataforma?`;
+    return confirmar(ex, texto, () => excluirDistrato(x));
+  }
   const b = e.target.closest("[data-baixar],[data-tentar]"); if (!b) return;
   b.disabled = true;
   try {
@@ -422,9 +492,13 @@ function renderArquivo() {
       <summary><span class="num">${p.num || ""}</span><span class="t">${esc(p.titulo)}</span><span class="c">${p.arqs.length} ${p.arqs.length === 1 ? "arquivo" : "arquivos"}</span></summary>
       <ul class="files">${p.arqs.sort((a, b) => ordemArq(a) - ordemArq(b) || a.nome.localeCompare(b.nome)).map(a => `
         <li><span class="tag">${esc((a.nome.split(".").pop() || "").toUpperCase())}</span><span class="fn">${esc(a.nome)}</span><span class="sz">${tam(a.size)}</span>
-          <button class="dl" type="button" data-baixar="${esc(a.path)}">Baixar</button></li>`).join("")}
+          <button class="dl" type="button" data-baixar="${esc(a.path)}">Baixar</button>
+          <button class="dl perigo" type="button" data-excluir-arq="${esc(a.path)}" title="Excluir este arquivo">Excluir</button></li>`).join("")}
       </ul>
-      <div class="addf"><button class="dl" type="button" data-anexar="${esc(raiz + p.nome)}">+ Adicionar arquivo (ex.: ASSINADO.pdf)</button></div>
+      <div class="addf actions" style="justify-content:space-between">
+        <button class="dl" type="button" data-anexar="${esc(raiz + p.nome)}">+ Adicionar arquivo (ex.: ASSINADO.pdf)</button>
+        <button class="dl perigo" type="button" data-excluir-pasta="${esc(raiz + p.nome)}">Excluir pasta</button>
+      </div>
     </details>`).join("");
 }
 
@@ -440,6 +514,23 @@ async function baixar(caminho, botao) {
 }
 
 $("#pastas").addEventListener("click", e => {
+  const ep = e.target.closest("[data-excluir-pasta]");
+  if (ep) {
+    const pasta = ep.dataset.excluirPasta, nome = pasta.split("/").pop();
+    return confirmar(ep, `Excluir a pasta "${nome}" com todos os arquivos?`, async () => {
+      await excluirNoRepositorio([pasta], [], r => r.pasta === pasta, `Pasta excluída por ${sessao.nome}: ${pasta}`);
+      toast("Pasta excluída."); await carregarArvore(); carregar();
+    });
+  }
+  const ea = e.target.closest("[data-excluir-arq]");
+  if (ea) {
+    const caminho = ea.dataset.excluirArq, nome = caminho.split("/").pop();
+    return confirmar(ea, `Excluir "${nome}"?`, async () => {
+      // se for o distrato (Word/PDF) de um item da lista, o item continua, só sem esse arquivo
+      await excluirNoRepositorio([], [caminho], null, `Arquivo excluído por ${sessao.nome}: ${caminho}`);
+      toast("Arquivo excluído."); await carregarArvore();
+    });
+  }
   const b = e.target.closest("[data-baixar],[data-anexar]"); if (!b) return;
   if (b.dataset.baixar) return baixar(b.dataset.baixar, b);
   pastaAlvo = b.dataset.anexar; $("#anexo").click();
