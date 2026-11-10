@@ -1,0 +1,9 @@
+/* Dentro do portal único: sem cabeçalho próprio e nas cores da WeGen (verde) e SmartBen (azul) */
+html.plat-embutido .top h1, html.plat-embutido .top .who { display: none; }
+html.plat-embutido { --accent: #1e874b; --accent-soft: #dff2e6; }
+html.plat-embutido[data-marca="smartben"] { --accent: #1d5fc2; --accent-soft: #e0ebfb; }
+html.plat-embutido[data-tema="escuro"] { --accent: #6fd39a; --accent-soft: #173022; }
+html.plat-embutido[data-tema="escuro"][data-marca="smartben"] { --accent: #8bb8ff; --accent-soft: #1a2a47; }
+html.plat-embutido .tabs button[data-aba="WEGEN"][aria-selected="true"] { border-bottom-color: #1e874b; }
+html.plat-embutido .tabs button[data-aba="SMARTBEN"][aria-selected="true"] { border-bottom-color: #1d5fc2; }
+html.plat-embutido a[href="configurar.html"] { display: none; }
