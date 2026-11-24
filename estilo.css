@@ -11,13 +11,20 @@
   --f-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-tema="claro"]){
   --bg:#0f1322; --surface:#171c30; --ink:#e8eaf3; --muted:#a0a7c2; --line:#2a3150;
   --accent:#8b98ff; --accent-ink:#0f1322; --accent-soft:#232a4d;
   --yellow:#e8dc00; --yellow-ink:#2b2800;
   --green:#22c06a; --green-ink:#06210f;
   --queue-soft:#232941; --queue-ink:#c4c9de;
   --warn:#ff9a6a; --warn-soft:#3a2018; color-scheme:dark}}
+html.escuro{
+  --bg:#0f1322; --surface:#171c30; --ink:#e8eaf3; --muted:#a0a7c2; --line:#2a3150;
+  --accent:#8b98ff; --accent-ink:#0f1322; --accent-soft:#232a4d;
+  --yellow:#e8dc00; --yellow-ink:#2b2800;
+  --green:#22c06a; --green-ink:#06210f;
+  --queue-soft:#232941; --queue-ink:#c4c9de;
+  --warn:#ff9a6a; --warn-soft:#3a2018; color-scheme:dark}
 
 *{box-sizing:border-box}
 html,body{margin:0}
