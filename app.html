@@ -60,6 +60,14 @@
 .confirma{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;font-weight:600;color:var(--warn);
   background:var(--warn-soft);border-radius:8px;padding:4px 6px 4px 10px}
 .tag{font-family:var(--f-mono);font-size:11px;padding:1px 5px;border-radius:4px;background:var(--queue-soft);color:var(--queue-ink)}
+.fdados{grid-column:1/-1;border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--surface);display:grid;gap:10px}
+.fdados .fl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.fdados label{display:grid;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}
+.fdados input,.fdados textarea{font:14px var(--f-body);padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);width:100%;box-sizing:border-box}
+.fdados textarea{min-height:84px;resize:vertical}
+.fdados .dica{font-size:12.5px;color:var(--muted);margin:0}
+.fdados .bt{display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:760px){.fdados .fl{grid-template-columns:1fr}}
 .warns{grid-column:1/-1;margin:0;padding:8px 12px 8px 28px;background:var(--warn-soft);border-radius:8px;font-size:13.5px}
 .spin{width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:r .8s linear infinite}
 @keyframes r{to{transform:rotate(360deg)}}
@@ -212,7 +220,7 @@ const ST = {
 };
 const GRUPOS = [["todos", "Todos", null], ["fila", "Na fila", "fila"], ["pronto", "Prontos", "pronto"], ["enviado", "Enviados", "enviado"], ["problema", "Com problema", "problema"]];
 
-let sessao = null, itens = [], locais = [], filtro = "todos", busca = "", rodando = false, timer = null, carregou = false;
+let abertoForm = null, sessao = null, itens = [], locais = [], filtro = "todos", busca = "", rodando = false, timer = null, carregou = false;
 try { filtro = localStorage.getItem("cd.filtro") || "todos"; } catch (_) {}
 try { sessao = JSON.parse(sessionStorage.getItem("cd.sessao") || "null"); } catch (_) {}
 
@@ -280,6 +288,14 @@ async function carregar() {
 }
 
 function render() {
+  // a lista se atualiza sozinha: guarda o que já foi digitado no formulário aberto
+  const fAberto = document.querySelector("[data-form]");
+  const digitado = fAberto ? Object.fromEntries(new FormData(fAberto).entries()) : null;
+  renderLista();
+  const fNovo = digitado && document.querySelector("[data-form]");
+  if (fNovo) Object.entries(digitado).forEach(([k, v]) => { const c = fNovo.elements[k]; if (c) c.value = v; });
+}
+function renderLista() {
   const cont = { todos: itens.length, fila: 0, pronto: 0, enviado: 0, problema: 0 };
   itens.forEach(x => cont[(ST[x.status] || ST.na_fila).grupo]++);
   $("#filtros").innerHTML = GRUPOS.map(([k, l, d]) => `<button class="chipbtn" type="button" data-f="${k}" aria-pressed="${filtro === k}">${d ? `<span class="dot ${d}"></span>` : ""}${l}<span class="n">${cont[k]}</span></button>`).join("");
@@ -301,13 +317,14 @@ function render() {
       x.pdf ? `<button class="dl" type="button" data-baixar="${esc(x.pdf)}"><span class="tag">PDF</span>Distrato</button>` : "",
       x.docx ? `<button class="dl" type="button" data-baixar="${esc(x.docx)}"><span class="tag">DOCX</span>Word</button>` : "",
       x.contrato_pdf ? `<button class="dl" type="button" data-baixar="${esc(x.contrato_pdf)}"><span class="tag">PDF</span>Contrato</button>` : "",
+      x.status === "problema" && x.pendente ? `<button class="dl" type="button" data-preencher="${esc(x.id)}">Preencher dados</button>` : "",
       x.status === "problema" && x.pendente ? `<button class="dl" type="button" data-tentar="${esc(x.id)}">Tentar de novo</button>` : "",
       x.status !== "gerando" ? `<button class="dl perigo" type="button" data-excluir="${esc(x.id)}" title="Excluir este distrato da plataforma">Excluir</button>` : "",
     ].join("");
     const av = x.avisos && x.avisos.length && !ocupado ? `<ul class="warns">${x.avisos.map(a => `<li>${esc(a)}</li>`).join("")}</ul>` : "";
     return `<div class="row"><div><div class="nm">${esc(nome)}</div><div class="small">${esc(linha2)}</div></div>
       <div class="meta">${meta}</div><div class="proto">${proto}</div>
-      <div class="status"><span class="pill ${st.cls}">${ocupado ? '<span class="spin" aria-hidden="true"></span>' : ""}${st.label}</span>${btns ? `<div class="actions">${btns}</div>` : ""}</div>${av}</div>`;
+      <div class="status"><span class="pill ${st.cls}">${ocupado ? '<span class="spin" aria-hidden="true"></span>' : ""}${st.label}</span>${btns ? `<div class="actions">${btns}</div>` : ""}</div>${av}${abertoForm === x.id ? formDados(x) : ""}</div>`;
   }).join("");
 }
 
@@ -358,6 +375,7 @@ async function excluirNoRepositorio(prefixos, caminhos, tirarDoRegistro, mensage
 async function excluirDistrato(x) {
   const prefixos = x.pasta ? [x.pasta] : [];
   const caminhos = x.pendente ? [x.pendente] : [];
+  caminhos.push(`manual/${x.id}.json`);
   // contrato ainda na fila: o arquivo fica em entrada/ com o id no começo do nome
   if (x.status === "na_fila") {
     try {
@@ -371,7 +389,56 @@ async function excluirDistrato(x) {
   arvore = null; carregar();
 }
 
+/* ---------- preencher dados que faltaram no contrato ---------- */
+function formDados(x) {
+  const l = x.lido || {};
+  return `<form class="fdados" data-form="${esc(x.id)}">
+    <p class="dica">Confira e complete o que faltou. O que estiver certo no contrato já vem preenchido. <strong>Empresa, opção e data</strong> continuam vindo da planilha CANCELAMENTOS: se o problema for lá, corrija na planilha e clique em Tentar de novo.</p>
+    <div class="fl">
+      <label>Nome do titular<input name="nome" value="${esc(l.nome || x.titular || "")}" required></label>
+      <label>Nº de instalação<input name="instalacao" inputmode="numeric" value="${esc(l.instalacao || "")}" required></label>
+      <label>Nº do contrato<input name="contrato" inputmode="numeric" value="${esc(l.contrato || "")}" required></label>
+    </div>
+    <label>Qualificação (como vai no distrato: nome, nacionalidade, estado civil, profissão, RG, CPF ou CNPJ e endereço)
+      <textarea name="qualificacao" required placeholder="Fulano de Tal, brasileiro, casado, aposentado, portador da Cédula de Identidade RG nº …, inscrito no CPF sob nº …, com endereço na …">${esc(l.qualificacao || "")}</textarea></label>
+    <div class="bt"><button class="dl" type="button" data-fechar>Cancelar</button><button class="dl" type="submit" style="background:var(--accent);border-color:var(--accent);color:#fff">Salvar e gerar o distrato</button></div>
+  </form>`;
+}
+$("#lista").addEventListener("submit", async e => {
+  const f = e.target.closest("[data-form]"); if (!f) return;
+  e.preventDefault();
+  const x = itens.find(i => i.id === f.dataset.form); if (!x || !x.pendente) return;
+  const d = Object.fromEntries(new FormData(f).entries());
+  if (/\[[^\]]+\]/.test(d.qualificacao)) { toast("A qualificação ainda tem campos entre [colchetes]. Troque pelos dados do cliente."); return; }
+  if (!/\d{6,}/.test(d.instalacao.replace(/\D/g, ""))) { toast("Confira o nº de instalação."); return; }
+  const b = f.querySelector("[type=submit]"); b.disabled = true; b.textContent = "Salvando…";
+  try {
+    const caminho = `manual/${x.id}.json`;
+    let sha;
+    try { sha = (await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, caminho))).json()).sha; } catch (_) { /* ainda não existe */ }
+    const json = JSON.stringify({ ...d, preenchido_por: sessao.nome, preenchido_em: new Date().toISOString() }, null, 1);
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+    await gh(sessao.token, "PUT", conteudo(REPO_DADOS, caminho), { message: `Dados preenchidos por ${sessao.nome}: ${d.nome}`, content: b64, ...(sha ? { sha } : {}) });
+    await voltarParaFila(x);
+    abertoForm = null;
+    toast("Dados salvos. O distrato entra na fila e aparece aqui em poucos minutos.");
+    carregar();
+  } catch (err) {
+    toast("Não deu certo agora. Tente de novo em instantes.");
+    b.disabled = false; b.textContent = "Salvar e gerar o distrato";
+  }
+});
+async function voltarParaFila(x) {
+  const meta = await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, x.pendente))).json();
+  const nomeArq = x.pendente.split("/").pop();
+  await gh(sessao.token, "PUT", conteudo(REPO_DADOS, "entrada/" + nomeArq), { message: `Tentar de novo: ${x.arquivo} (${sessao.nome})`, content: meta.content.replace(/\s/g, "") });
+  await gh(sessao.token, "DELETE", conteudo(REPO_DADOS, x.pendente), { message: `Sai de pendentes: ${x.arquivo}`, sha: meta.sha });
+}
+
 $("#lista").addEventListener("click", async e => {
+  const pr = e.target.closest("[data-preencher]");
+  if (pr) { abertoForm = abertoForm === pr.dataset.preencher ? null : pr.dataset.preencher; render(); const fm = document.querySelector(`[data-form="${abertoForm}"] input`); if (fm) fm.focus(); return; }
+  if (e.target.closest("[data-fechar]")) { abertoForm = null; render(); return; }
   const ex = e.target.closest("[data-excluir]");
   if (ex) {
     const x = itens.find(i => i.id === ex.dataset.excluir); if (!x) return;
@@ -390,10 +457,7 @@ $("#lista").addEventListener("click", async e => {
       setTimeout(() => URL.revokeObjectURL(url), 20000);
     } else {
       const x = itens.find(i => i.id === b.dataset.tentar); if (!x) return;
-      const meta = await (await gh(sessao.token, "GET", conteudo(REPO_DADOS, x.pendente))).json();
-      const nomeArq = x.pendente.split("/").pop();
-      await gh(sessao.token, "PUT", conteudo(REPO_DADOS, "entrada/" + nomeArq), { message: `Tentar de novo: ${x.arquivo} (${sessao.nome})`, content: meta.content.replace(/\s/g, "") });
-      await gh(sessao.token, "DELETE", conteudo(REPO_DADOS, x.pendente), { message: `Sai de pendentes: ${x.arquivo}`, sha: meta.sha });
+      await voltarParaFila(x);
       toast("Contrato de volta na fila. Corrija a planilha antes, se for o caso.");
       carregar();
     }
